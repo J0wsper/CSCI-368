@@ -1,4 +1,4 @@
-# Project 1: Buffer overflows
+# Project 1: Buffer overflows (test)
 
 Note: your code will be graded in the provided virtual machine (VM), so I highly recommend that you write and test your code in the provided VM. (If you are reading this shortly after it was posted, the VM may not be available just yet -- stay tuned! Once it is available, the file itself and setup instructions will be on Moodle.)
 
