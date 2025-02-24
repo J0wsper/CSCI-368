@@ -16,6 +16,7 @@ static char response[512];
 static char input_buffer[512];
 static sender_info sender;
 
+#define BUFFER_SIZE = 64;
 
 char* your_input_filter (char *input)
 {
