@@ -26,7 +26,6 @@ static sender_info sender;
 void buffer_overflow(char *input)
 {
     char buffer[64];
-    printf("Buffer location: %p\n", &buffer);
     strcpy(buffer, input); // oops!
 }
 
