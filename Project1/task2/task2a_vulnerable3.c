@@ -18,11 +18,14 @@ static sender_info sender;
 
 int secure_strcpy (char *dest, const char *src)
 {
-    unsigned dest_len = sizeof(dest);
-    for (int i = 0; i < dest_len-1; i++) {
-	dest[i] = src[i];
-    }
-    dest[dest_len-1] = '\0';
+    // NOTE: 
+    const unsigned dest_size = 64;
+    const unsigned src_len = strnlen(src, dest_size);
+    char new_src[src_len];
+    memcpy(new_src, src, src_len);
+    strcpy(dest, new_src);
+    memset(dest+src_len, '\0', dest_size-src_len);
+
     return 0;
 }
 
