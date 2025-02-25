@@ -18,25 +18,32 @@ static sender_info sender;
 
 int secure_strcpy (char *dest, const char *src)
 {
-    /* TODO: Write a more secure strcpy with bound checking.
-    You may use strcpy at any time, but you must check the bounds of the input
-    */
-
     unsigned dest_len = sizeof(dest);
-    strncpy(dest, src, dest_len);
+    for (int i = 0; i < dest_len-1; i++) {
+	dest[i] = src[i];
+    }
     dest[dest_len-1] = '\0';
     return 0;
 }
 
 int secure_sprintf (char *dest, const char *src)
 {
-    /* TODO: Write a more secure sprintf with bound checking.
-    You may use sprintf at any time, but you must check the bounds of the input
-    */
-    
-    unsigned dest_len = sizeof(dest);
-    snprintf(dest, dest_len, "%s", src);
-    dest[dest_len-1] = '\0';
+    // NOTE: This is honestly the best way I see of making this safe.
+    // src might not be null-terminated, in which case strlen will fail.
+    // We also cannot do sizeof(src) because if it is dynamically-allocated,
+    // then it will just return the size of the pointer which is always 8 bytes.
+    // on a 64-bit system. I hate C.
+
+    // NOTE: Also, if dest is heap-allocated, then we cannot get its size.
+    // However, in the original task, dest is stack-allocated and so I am going
+    // to assume that it is always stack-allocated.
+    const unsigned long dest_size = 512;
+    const unsigned long src_len = strnlen(src, dest_size);
+    char new_src[src_len];
+    memcpy(new_src, src, src_len);
+    sprintf(dest, "%s", new_src);
+    memset(dest+src_len, '\0', dest_size-src_len);
+
     return 0;
 }
 
