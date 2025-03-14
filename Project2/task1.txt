@@ -1,0 +1,20 @@
+"hiii"
+alice
+"name"="bob"
+"tel1"="x', pass='1abedcd9967cc42ea624432d356a5f0bce7ae3a9"
+"state"="x' WHERE name LIKE 'bob' -- "
+
+The way that I went about this was based on some work by Sam that got SQL logging up and running in
+the class.user.php file involving the error_log() function. This let me see whether a query was
+going through, what SQL saw once the query was sent, and where the errors in my query were.
+Before even that though, I determined that the 'edit' function was the one we needed to be looking
+at, and in particular the 'telephone' and 'state' fields as these are not fully sanitized. I
+was originally looking at the 'editpass' function but all the inputs are successfully sanitized in that
+one so I abandoned it. Because 'tel' sanitizes the '-' character and state sanitizes the '=' character,
+I knew I had to do the password assignment in the tel field and the commenting out in the state field.
+From there, I found a simple online SHA-1 hash tool (as I noticed this is how passwords were stored)
+and go to work trying to craft a successful SQL query. It is important to note that the '--' has a
+space after it because MySQL needs at least one whitespace after a comment or else it will not work.
+Additionally, I figured out that ID = 3 for Bob, but this was not helpful because the state field
+sanitizes any '=' signs so I couldn't do comparison that way. That just left the LIKE clause which
+ended up doing the trick.

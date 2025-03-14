@@ -25,4 +25,4 @@ vulnerable2.x : vulnerable2.c comms-nocanary.o
 	$(CC) $(CFLAGS) -o $@ $^
 
 clean : 
-	rm -f $(EXECS) *.o
+	rm -f $(EXECS) *.o *.x

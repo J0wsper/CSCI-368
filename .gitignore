@@ -1,3 +1,9 @@
 VM/*
-Project1/gdb-commands.txt
+slides/*
+misc/*
+textbooks/*
 /*/*/*.x
+Project1/tmp/*
+Project1/gdb-commands.txt
+Project2/*.png
+Project2/*.py

