@@ -20,11 +20,14 @@ fn main() {
             if digit < 10 {
                 str.push(digit + CHAR_OFFSET);
             } else {
-                str.push(digit + DIGIT_OFFSET);
+                str.push((digit - 10) + DIGIT_OFFSET);
             }
             val /= 36;
         }
-        let hash = md5::compute(str);
-        let _ = writeln!(writer, "{:x}", hash);
+        let hash = md5::compute(&str);
+        let pass = String::from_utf8(str).unwrap();
+        let hash_str = format!("{:x}", hash);
+        let final_pass = pass + ": " + &hash_str;
+        let _ = writeln!(writer, "{}", final_pass);
     }
 }
