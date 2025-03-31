@@ -7,5 +7,5 @@ Project1/tmp/*
 Project1/gdb-commands.txt
 Project2/*.png
 Project2/*.py
-Project3/task1/target/*
+Project3/*/target
 Project3/task1/password_attempts.txt

@@ -130,6 +130,32 @@ stream. That is, we will call it as (for an input file `task2.in`)
 ```
 ./task2 task2.in
 ```
+#### My Notes
+
+ * For `reference.in`, we have that the requests to the checking account both begin
+ with the same 16-bit signature: `07ef`.
+ * The checking account requests are composed of 2 blocks each; we can use this to
+ orient ourself in the task and find the rest of the requests.
+ * This means that the $100 transfer to the checking account is 5 blocks starting
+ with `be54`. 
+ * This leads me to believe that the first block is just the "request" syntax because
+ it is shared with the savings account request.
+ * Similarly, the "transfer" request starts with `be54` regardless of if it is to
+ checking or savings.
+ * I think that the blocks starting with `c501` denote the checking account.
+ * Meanwhile, the block starting with `c461` denotes the savings account.
+ * I think that the syntax of a transfer request looks like this:
+    1. Transfer request signature.
+    2. Source account.
+    3. Destination account.
+    4. Time the request is to be executed.
+    5. Amount of money in the request.
+  * The transfer request signature is:
+  `be54 1528 f397 89ef 8749 6921 7b0a 7caa  .T.(.....Ii!{.|.`
+  * For a request to be executed immediately, its signature is:
+  `be51 fa0d e2fb 7cef e6bd 16bc b6c1 74f3  .Q....|.......t.`
+  * For a request to transfer $1000, its signature is:
+  `ca26 370d 5788 6584 a78e 36f8 203d dd83  .&7.W.e...6. =..`
 
 ### Task 3
 
