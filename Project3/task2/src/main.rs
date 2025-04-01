@@ -55,8 +55,10 @@ fn longest_substring(buf: &Vec<u8>) -> Vec<(usize, usize)> {
                 continue;
             }
             if memo[i][j] == ans_len {
-                let new_ans = (i, i + ans_len - 1);
-                longest_substrings.push(new_ans);
+                let new_ans_1 = (i, i + ans_len - 1);
+                let new_ans_2 = (j, j + ans_len - 1);
+                longest_substrings.push(new_ans_1);
+                longest_substrings.push(new_ans_2);
             }
         }
     }
@@ -75,6 +77,5 @@ fn main() {
 
     // Finding the longest repeated substring
     let longest_substring = longest_substring(&buf);
-    dbg!(&longest_substring);
-    dbg!(&buf[0..48]);
+    dbg!(longest_substring);
 }
