@@ -1,4 +1,4 @@
-use std::{cmp::min, env, fs::File, io::Read};
+use std::{env, fs::File, io::Read};
 
 const BLOCK_SIZE: usize = 16;
 
@@ -68,7 +68,7 @@ const BLOCK_SIZE: usize = 16;
 // }
 
 // Finds all instances of the block that starts at start in buf
-fn find_block(buf: &[u8], start: usize) -> Vec<(usize, usize)> {
+fn find_block(buf: &[u8], start: usize) -> Vec<usize> {
     // Doing some sanity checks to make sure the start is valid
     if start % BLOCK_SIZE != 0 {
         panic!("Invalid starting index; not a multiple of block size");
@@ -91,21 +91,45 @@ fn find_block(buf: &[u8], start: usize) -> Vec<(usize, usize)> {
             // If we've reached BLOCK SIZE and the request headers are similar, add it to our
             // vector
             if initial_index == BLOCK_SIZE {
-                found.push((i, buf_index));
+                found.push(i);
             }
         }
     }
     found
 }
 
-// Gets the number of transfer requests in a given length
-fn transfer_number(buf: &[u8]) -> u32 {
-    let mut len = buf.len();
-    while len % 2 == 0 {
-        len /= 2;
+// We know that if our initial request header is followed by two different blocks at different
+// points in our buffer, then both of those blocks are account labels.
+fn find_account_numbers(buf: &[u8]) -> Vec<usize> {
+    // Both of these vectors are implicitly sorted based on how find_block operates.
+    let first_req = find_block(buf, 0);
+    let first_acc = find_block(buf, BLOCK_SIZE);
+    let mut accs = first_acc.clone();
+    // For each instance of the first request header, check which blocks follow it
+    for block in first_req.iter() {
+        let following = block + BLOCK_SIZE;
+        match accs.binary_search(&following) {
+            // If we found the following block in our first account vector, continue
+            Ok(_) => continue,
+            // Otherwise, we want to find all instances of it
+            Err(_) => {
+                let new_acc = find_block(buf, following);
+                accs = [accs, new_acc].concat();
+                accs.sort();
+            }
+        }
     }
-    (len / 5).try_into().unwrap()
+    accs
 }
+
+// Gets the number of transfer requests in a given length
+// fn transfer_number(buf: &[u8]) -> u32 {
+//     let mut len = buf.len();
+//     while len % 2 == 0 {
+//         len /= 2;
+//     }
+//     (len / 5).try_into().unwrap()
+// }
 
 fn main() {
     // Getting our file
@@ -118,6 +142,7 @@ fn main() {
         .expect("Could not read file");
 
     // Finding the longest repeated substring
-    let initial_requests = find_block(&buf, BLOCK_SIZE);
-    dbg!(initial_requests);
+    let accs = find_account_numbers(&buf);
+    dbg!(accs);
+    println!("{}", &buf.len());
 }
