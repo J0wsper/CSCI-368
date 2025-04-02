@@ -188,6 +188,27 @@ That is, we will call it as (for an input file `task2.in`)
     conjectures about how many of a given request type there are.
   - This would work (kinda we'd have to do prime factorization which is not
     fast) if 4 wasn't a multiple of 2.
+  - This can still allow us to know how many transfer requests those are if we
+    perform repeated division by 2.
+- One piece of information we have is that the first block will always be the
+  header of some request.
+  - From there maybe we can find out what is different?
+  - For instance, with `task2.in`, we have the first request header begins with
+    `4846`.
+  - We can then ripgrep to find that there are 4 instances of a line beginning
+    with the digits `4846`.
+  - From there, we know that the second line of the text file is always going to
+    be an address of some sort.
+  - In this instance of `task2.in`, we can also infer that the `4846` command is
+    a transfer because it appears 5 lines from the end.
+  - Maybe we can check for the distance between two instances of the first line?
+    Then that'll give us a smaller number that can tell us what kinds of
+    requests are between it.
+  - We can also try to figure out what the last request is.
+  - Because `4846` is a transfer request, it certainly contains at least two
+    addresses; the source and the target addresses.
+  - If there are two instances of a single line and they're separated by only
+    one line, then we know that that's a repeated balance request.
 
 ### Task 3
 
