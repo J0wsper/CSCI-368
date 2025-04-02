@@ -209,6 +209,29 @@ That is, we will call it as (for an input file `task2.in`)
     addresses; the source and the target addresses.
   - If there are two instances of a single line and they're separated by only
     one line, then we know that that's a repeated balance request.
+- Based on the fact that we now (probably) have at least two account numbers
+  because of `find_accs`, what does this let us do next?
+  - Analyze the end of the trace because we know that there will be a last
+    request that may or may not contain one of the request headers we have seen
+    so far
+- From here, we have one of the three request headers and a bunch of account
+  numbers.
+  We can then try brute force to find the other two request headers?
+  Not the most elegant solution in the world but it might yield something nice.
+- We can also perform modular arithmetic on the differences between the
+  requests.
+  - What I mean by this is that if we have two instances of our initial request
+    that are separated by 5 blocks, then we know that the initial request is a
+    transfer request.
+  - Alternatively, if any two instances of our initial request are separated by
+    2 blocks, then we know that the initial request is a balance request.
+  - For instance, we know that the initial request in `task2.in` is a transfer
+    request because it has one instance at line 26 and one instance at line 31.
+  - Alternatively, if we have that the minimum distance between any two of the
+    initial requests is 7, then we know that either the initial request is a
+    transfer or it is a balance.
+    Whichever request type the initial request is not, there must be another one
+    immediately following it.
 
 ### Task 3
 
