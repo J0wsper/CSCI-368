@@ -4,13 +4,13 @@ const BLOCK_SIZE: usize = 16;
 
 // Struct to carry information about which headers we have found
 #[derive(Debug)]
-struct Headers {
-    balance: Option<usize>,
-    invoice: Option<usize>,
-    transfer: Option<usize>,
+struct Headers<'a> {
+    balance: Option<&'a [u8]>,
+    invoice: Option<&'a [u8]>,
+    transfer: Option<&'a [u8]>,
 }
 
-impl Headers {
+impl<'a> Headers<'a> {
     pub fn new() -> Self {
         Self {
             balance: None,
@@ -18,14 +18,17 @@ impl Headers {
             transfer: None,
         }
     }
-    pub fn found_balance(&mut self, loc: usize) {
-        self.balance = Some(loc);
+    pub fn found_balance(&mut self, buf: &'a [u8], loc: usize) {
+        let instances = find_block(buf, loc);
+        self.balance = Some(instances);
     }
-    pub fn found_invoice(&mut self, loc: usize) {
-        self.invoice = Some(loc)
+    pub fn found_invoice(&mut self, buf: &'a [u8], loc: usize) {
+        let instances = find_block(buf, loc);
+        self.invoice = Some(instances);
     }
-    pub fn found_transfer(&mut self, loc: usize) {
-        self.transfer = Some(loc)
+    pub fn found_transfer(&mut self, buf: &'a [u8], loc: usize) {
+        let instances = find_block(buf, loc);
+        self.transfer = Some(instances);
     }
     pub fn num_found(&self) -> u8 {
         let mut found = 0;
@@ -46,7 +49,7 @@ impl Headers {
 struct State<'a> {
     buf: &'a [u8],
     chunks: Vec<&'a [u8]>,
-    headers: Headers,
+    headers: Headers<'a>,
 }
 
 impl<'a> State<'a> {
@@ -106,15 +109,64 @@ fn find_block(buf: &[u8], start: usize) -> Vec<usize> {
     found
 }
 
-fn solve(state: State) -> State {
+// We assume that our state.headers are all valid for a single iteration of the solve algorithm.
+// From there, we can see if there is a valid way to parse the chunks. If there is, then we return
+// that valid parsing. If there is not, we kill the process?
+fn solve(state: &mut State) -> bool {
     // Base case: we check if there are any contradictions
-    if state.headers.num_found() == 3 {}
-    todo!()
+    if state.headers.num_found() == 3 {
+        // For each chunk in our collection of chunks
+        for chunk in state.chunks.iter() {
+            // While we have not verified every block in a given chunk
+            let mut block = 0;
+            while block < chunk.len() / BLOCK_SIZE {
+                // Getting our different header types and their instances
+                let balances = match state.headers.balance {
+                    Some(ref instances) => instances,
+                    None => panic!("Could nto find balance instances"),
+                };
+                let transfers = match state.headers.transfer {
+                    Some(ref instances) => instances,
+                    None => panic!("Could not find transfer instances"),
+                };
+                let invoices = match state.headers.invoice {
+                    Some(ref instances) => instances,
+                    None => panic!("Could not find invoice instances"),
+                };
+                // We want to break up our chunks according to our headers and see if there is a
+                // proper division.
+                if balances.binary_search(&block).is_ok() {
+                    block += 2;
+                } else if transfers.binary_search(&block).is_ok() {
+                    block += 5
+                } else if invoices.binary_search(&block).is_ok() {
+                    block += 4;
+                }
+                // This is the invalid case
+                else {
+                    return false;
+                }
+            }
+        }
+        // If we manage to partition all of our chunks according to our header assumptions, then we
+        // will return that this is an assignment that might work.
+        true
+    }
+    // Otherwise, we try different assignment and split our trace
+    else {
+        // We're trying to find some way to split our unsolved chunks that works.
+        // Any chunk that begins with a block not contained in one of our state.header vectors is
+        // unsolved.
+        // If transfers are not assigned, we try that first.
+        // If they are but invoices are not assigned, we try that next.
+        // If they are but balances are not assigned, we try that last.
+        true
+    }
 }
 
 fn main() {
     // Getting our file
     let buf = create_buf();
-    let state = State::new(&buf);
-    solve(state);
+    let mut state = State::new(&buf);
+    solve(&mut state);
 }
