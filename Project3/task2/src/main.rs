@@ -2,6 +2,13 @@ use std::{env, fs::File, io::Read};
 
 const BLOCK_SIZE: usize = 16;
 
+#[derive(Debug)]
+enum ReqType {
+    Balance,
+    Invoice,
+    Transfer,
+}
+
 // Struct to carry information about which headers we have found
 #[derive(Debug)]
 struct Headers<'a> {
@@ -43,6 +50,7 @@ impl<'a> Headers<'a> {
 }
 
 // Holds the state that we're in when we're recursing
+#[derive(Debug)]
 struct State<'a> {
     buf: &'a [u8],
     chunks: Vec<&'a [u8]>,
@@ -106,10 +114,26 @@ fn find_block(buf: &[u8], start: usize) -> Vec<usize> {
     found
 }
 
+// Produces chunks according to a request header assumption
+fn make_chunks(buf: &[u8], idx: usize, req_type: ReqType) -> Vec<&[u8]> {
+    let instances = find_block(buf, idx);
+    let inc = match req_type {
+        ReqType::Balance => 2,
+        ReqType::Invoice => 4,
+        ReqType::Transfer => 5,
+    };
+    let mut chunks = Vec::new();
+    for instance in instances.iter() {
+        let chunk = &buf[instance * BLOCK_SIZE..(instance + inc) * BLOCK_SIZE];
+        chunks.push(chunk);
+    }
+    chunks
+}
+
 // We assume that our state.headers are all valid for a single iteration of the solve algorithm.
 // From there, we can see if there is a valid way to parse the chunks. If there is, then we return
 // that valid parsing. If there is not, we kill the process?
-fn solve(state: &mut State) -> bool {
+fn solve<'a>(state: &'a mut State<'a>) -> bool {
     // Base case: we check if there are any contradictions
     if state.headers.num_found() == 3 {
         // For each chunk in our collection of chunks
@@ -120,19 +144,19 @@ fn solve(state: &mut State) -> bool {
                 // Getting our different header types and their instances
                 let balances = match state.headers.balance {
                     Some(instances) => instances,
-                    None => panic!("Could not find balance instances"),
+                    None => panic!("Could not find balance instances in solved case"),
                 };
                 let transfers = match state.headers.transfer {
                     Some(instances) => instances,
-                    None => panic!("Could not find transfer instances"),
+                    None => panic!("Could not find transfer instances in solved case"),
                 };
                 let invoices = match state.headers.invoice {
                     Some(instances) => instances,
-                    None => panic!("Could not find invoice instances"),
+                    None => panic!("Could not find invoice instances in solved case"),
                 };
                 // We want to break up our chunks according to our headers and see if there is a
                 // proper division.
-                let header = &chunk[block..block + BLOCK_SIZE];
+                let header = &chunk[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE];
                 // For each of our header request types, we increment the block we're looking at by
                 // that request type's length
                 if balances == header {
@@ -155,13 +179,69 @@ fn solve(state: &mut State) -> bool {
     }
     // Otherwise, we try different assignment and split our trace
     else {
-        // We're trying to find some way to split our unsolved chunks that works.
-        // Any chunk that begins with a block not contained in one of our state.header vectors is
-        // unsolved.
-        // If transfers are not assigned, we try that first.
-        // If they are but invoices are not assigned, we try that next.
-        // If they are but balances are not assigned, we try that last.
-        true
+        // While we have not assigned each of our header types
+        let mut block = 0;
+        while block < state.buf.len() / BLOCK_SIZE {
+            // Try to assign headers to our various blocks
+            let header = &state.buf[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE];
+            // If this header is assigned, go to our next block and update the block we are
+            // attempting to assign.
+            if Some(header) == state.headers.balance {
+                block += 2;
+                continue;
+            } else if Some(header) == state.headers.invoice {
+                block += 4;
+                continue;
+            } else if Some(header) == state.headers.transfer {
+                block += 5;
+                continue;
+            }
+            // Otherwise, we try to assign our header and break up the trace wherever we see that
+            // request into chunks
+            if state.headers.balance.is_none() {
+                state.headers.found_balance(state.buf, block);
+                block += 2;
+            } else if state.headers.transfer.is_none() {
+                state.headers.found_transfer(state.buf, block);
+                block += 5;
+            } else if state.headers.invoice.is_none() {
+                state.headers.found_invoice(state.buf, block);
+                block += 4;
+            }
+        }
+        // Once we've done this, we partition our trace into chunks and return the solved value
+        block = 0;
+        let mut done = Vec::new();
+        // While the blocks we've assigned are not comprehensive
+        while block < state.buf.len() / BLOCK_SIZE {
+            // If we have done a particular block already in a previous iteration, we skip it.
+            if done.binary_search(&block).is_ok() {
+                println!("Done");
+                continue;
+            }
+            // We take our header and all instances of that header, adding these to the indices we
+            // have chunked already and sorting them.
+            let header = &state.buf[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE];
+            let instances = find_block(state.buf, block * BLOCK_SIZE);
+            done = [done, instances].concat();
+            done.sort();
+
+            // Because we have a new request header, we perform the chunking for that type.
+            let new_chunks;
+            if Some(header) == state.headers.balance {
+                new_chunks = make_chunks(state.buf, block, ReqType::Balance);
+                block += 2;
+            } else if Some(header) == state.headers.invoice {
+                new_chunks = make_chunks(state.buf, block, ReqType::Invoice);
+                block += 4;
+            } else {
+                new_chunks = make_chunks(state.buf, block, ReqType::Transfer);
+                block += 5;
+            }
+            state.chunks = [state.chunks.clone(), new_chunks].concat();
+            state.chunks.sort();
+        }
+        solve(state)
     }
 }
 
