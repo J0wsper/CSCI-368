@@ -4,13 +4,13 @@ const BLOCK_SIZE: usize = 16;
 
 // Struct to carry information about which headers we have found
 #[derive(Debug)]
-struct Headers {
-    balance: Option<Vec<usize>>,
-    invoice: Option<Vec<usize>>,
-    transfer: Option<Vec<usize>>,
+struct Headers<'a> {
+    balance: Option<&'a [u8]>,
+    invoice: Option<&'a [u8]>,
+    transfer: Option<&'a [u8]>,
 }
 
-impl Headers {
+impl<'a> Headers<'a> {
     pub fn new() -> Self {
         Self {
             balance: None,
@@ -18,17 +18,14 @@ impl Headers {
             transfer: None,
         }
     }
-    pub fn found_balance(&mut self, buf: &[u8], loc: usize) {
-        let instances = find_block(buf, loc);
-        self.balance = Some(instances);
+    pub fn found_balance(&mut self, buf: &'a [u8], loc: usize) {
+        self.balance = Some(&buf[loc..loc + BLOCK_SIZE]);
     }
-    pub fn found_invoice(&mut self, buf: &[u8], loc: usize) {
-        let instances = find_block(buf, loc);
-        self.invoice = Some(instances);
+    pub fn found_invoice(&mut self, buf: &'a [u8], loc: usize) {
+        self.invoice = Some(&buf[loc..loc + BLOCK_SIZE]);
     }
-    pub fn found_transfer(&mut self, buf: &[u8], loc: usize) {
-        let instances = find_block(buf, loc);
-        self.transfer = Some(instances);
+    pub fn found_transfer(&mut self, buf: &'a [u8], loc: usize) {
+        self.transfer = Some(&buf[loc..loc + BLOCK_SIZE]);
     }
     pub fn num_found(&self) -> u8 {
         let mut found = 0;
@@ -49,7 +46,7 @@ impl Headers {
 struct State<'a> {
     buf: &'a [u8],
     chunks: Vec<&'a [u8]>,
-    headers: Headers,
+    headers: Headers<'a>,
 }
 
 impl<'a> State<'a> {
@@ -122,27 +119,31 @@ fn solve(state: &mut State) -> bool {
             while block < chunk.len() / BLOCK_SIZE {
                 // Getting our different header types and their instances
                 let balances = match state.headers.balance {
-                    Some(ref instances) => instances,
-                    None => panic!("Could nto find balance instances"),
+                    Some(instances) => instances,
+                    None => panic!("Could not find balance instances"),
                 };
                 let transfers = match state.headers.transfer {
-                    Some(ref instances) => instances,
+                    Some(instances) => instances,
                     None => panic!("Could not find transfer instances"),
                 };
                 let invoices = match state.headers.invoice {
-                    Some(ref instances) => instances,
+                    Some(instances) => instances,
                     None => panic!("Could not find invoice instances"),
                 };
                 // We want to break up our chunks according to our headers and see if there is a
                 // proper division.
-                if balances.binary_search(&block).is_ok() {
+                let header = &chunk[block..block + BLOCK_SIZE];
+                // For each of our header request types, we increment the block we're looking at by
+                // that request type's length
+                if balances == header {
                     block += 2;
-                } else if transfers.binary_search(&block).is_ok() {
+                } else if transfers == header {
                     block += 5
-                } else if invoices.binary_search(&block).is_ok() {
+                } else if invoices == header {
                     block += 4;
                 }
-                // This is the invalid case
+                // This is the invalid case so we say that our given header assumption are false
+                // under the given partitioning scheme
                 else {
                     return false;
                 }
