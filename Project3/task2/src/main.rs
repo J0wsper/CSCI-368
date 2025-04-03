@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, env, fs::File, io::Read};
+use std::{env, fs::File, io::Read};
 
 const BLOCK_SIZE: usize = 16;
 
@@ -42,22 +42,10 @@ impl Headers {
     }
 }
 
-struct Accounts<'a>(BTreeMap<&'a [u8], Vec<&'a [u8]>>);
-
-impl<'a> Accounts<'a> {
-    pub fn new(buf: &'a [u8]) -> Self {
-        Self(find_accs(buf))
-    }
-    pub fn get(&self, buf: &[u8], idx: usize) -> Option<&Vec<&[u8]>> {
-        self.0.get(&buf[idx..idx + BLOCK_SIZE])
-    }
-}
-
 // Holds the state that we're in when we're recursing
 struct State<'a> {
     buf: &'a [u8],
     chunks: Vec<&'a [u8]>,
-    accs: Accounts<'a>,
     headers: Headers,
 }
 
@@ -66,7 +54,6 @@ impl<'a> State<'a> {
         Self {
             buf,
             chunks: vec![buf],
-            accs: Accounts::new(buf),
             headers: Headers::new(),
         }
     }
@@ -117,31 +104,6 @@ fn find_block(buf: &[u8], start: usize) -> Vec<usize> {
         }
     }
     found
-}
-
-// We know that if our initial request header is followed by two different blocks at different
-// points in our buffer, then both of those blocks are account labels.
-fn find_accs(buf: &[u8]) -> BTreeMap<&[u8], Vec<&[u8]>> {
-    let first_req = find_block(buf, 0);
-    let first_acc = &buf[BLOCK_SIZE..2 * BLOCK_SIZE];
-    let first_accs = find_block(buf, BLOCK_SIZE);
-    let mut accs = BTreeMap::new();
-    let mut first_val = accs
-        .insert(first_acc, vec![&buf[BLOCK_SIZE..2 * BLOCK_SIZE]])
-        .unwrap();
-    for start_idx in first_accs {
-        first_val.push(&buf[start_idx..start_idx + BLOCK_SIZE]);
-    }
-    for block in first_req.iter() {
-        let following = &buf[*block..*block + BLOCK_SIZE];
-        match accs.get_mut(following) {
-            Some(header) => header.push(following),
-            None => {
-                accs.insert(following, vec![following]).unwrap();
-            }
-        }
-    }
-    accs
 }
 
 fn solve(state: State) -> State {
