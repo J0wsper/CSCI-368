@@ -4,13 +4,13 @@ const BLOCK_SIZE: usize = 16;
 
 // Struct to carry information about which headers we have found
 #[derive(Debug)]
-struct Headers<'a> {
-    balance: Option<&'a [u8]>,
-    invoice: Option<&'a [u8]>,
-    transfer: Option<&'a [u8]>,
+struct Headers {
+    balance: Option<Vec<usize>>,
+    invoice: Option<Vec<usize>>,
+    transfer: Option<Vec<usize>>,
 }
 
-impl<'a> Headers<'a> {
+impl Headers {
     pub fn new() -> Self {
         Self {
             balance: None,
@@ -18,15 +18,15 @@ impl<'a> Headers<'a> {
             transfer: None,
         }
     }
-    pub fn found_balance(&mut self, buf: &'a [u8], loc: usize) {
+    pub fn found_balance(&mut self, buf: &[u8], loc: usize) {
         let instances = find_block(buf, loc);
         self.balance = Some(instances);
     }
-    pub fn found_invoice(&mut self, buf: &'a [u8], loc: usize) {
+    pub fn found_invoice(&mut self, buf: &[u8], loc: usize) {
         let instances = find_block(buf, loc);
         self.invoice = Some(instances);
     }
-    pub fn found_transfer(&mut self, buf: &'a [u8], loc: usize) {
+    pub fn found_transfer(&mut self, buf: &[u8], loc: usize) {
         let instances = find_block(buf, loc);
         self.transfer = Some(instances);
     }
@@ -49,7 +49,7 @@ impl<'a> Headers<'a> {
 struct State<'a> {
     buf: &'a [u8],
     chunks: Vec<&'a [u8]>,
-    headers: Headers<'a>,
+    headers: Headers,
 }
 
 impl<'a> State<'a> {
