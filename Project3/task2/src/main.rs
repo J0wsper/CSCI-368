@@ -10,6 +10,13 @@ enum ReqType {
     Transfer,
 }
 
+#[derive(Debug, Clone)]
+struct Headers<'a> {
+    balance: Option<&'a [u8]>,
+    invoice: Option<&'a [u8]>,
+    transfer: Option<&'a [u8]>,
+}
+
 // Struct to carry information about which headers we have found
 
 // Holds the state that we're in when we're recursing
@@ -18,6 +25,7 @@ struct State<'a> {
     buf: &'a [u8],
     chunks: Vec<&'a [u8]>,
     accs: HashSet<&'a [u8]>,
+    headers: Headers<'a>,
 }
 
 impl<'a> State<'a> {
@@ -26,6 +34,11 @@ impl<'a> State<'a> {
             buf,
             accs: find_accs(buf, &buf[0..BLOCK_SIZE]),
             chunks: vec![buf],
+            headers: Headers {
+                balance: None,
+                invoice: None,
+                transfer: None,
+            },
         }
     }
 }
@@ -93,7 +106,7 @@ fn find_accs<'a>(buf: &'a [u8], header: &'a [u8]) -> HashSet<&'a [u8]> {
     accs
 }
 
-fn check_valid(chunks: &Vec<&[u8]>, accs: &HashSet<&[u8]>) -> bool {
+fn validate_chunks(chunks: &Vec<&[u8]>, accs: &HashSet<&[u8]>) -> bool {
     for chunk in chunks {
         if accs.contains(chunk) {
             return false;
@@ -102,7 +115,7 @@ fn check_valid(chunks: &Vec<&[u8]>, accs: &HashSet<&[u8]>) -> bool {
     true
 }
 
-fn split_chunks(chunk: &[u8], req_type: ReqType) -> Vec<&[u8]> {
+fn split_chunks(chunk: &[u8], req_type: ReqType) -> (&[u8], &[u8]) {
     let div = match req_type {
         ReqType::Balance => 2 * BLOCK_SIZE,
         ReqType::Invoice => 4 * BLOCK_SIZE,
@@ -110,7 +123,7 @@ fn split_chunks(chunk: &[u8], req_type: ReqType) -> Vec<&[u8]> {
     };
     let first_chunk = &chunk[0..div];
     let second_chunk = &chunk[div..];
-    [first_chunk, second_chunk].to_vec()
+    (first_chunk, second_chunk)
 }
 
 fn compose_state<'a>(
@@ -121,8 +134,9 @@ fn compose_state<'a>(
 ) -> State<'a> {
     let new_chunks = split_chunks(chunk, req_type);
     state.chunks.remove(idx);
-    state.chunks.push(new_chunks[0]);
-    state.chunks.push(new_chunks[1]);
+    state.chunks.push(new_chunks.0);
+    state.chunks.push(new_chunks.1);
+    state.chunks.sort();
     match req_type {
         ReqType::Balance => {
             let new_accs = find_accs(state.buf, &chunk[BLOCK_SIZE..2 * BLOCK_SIZE]);
@@ -138,6 +152,28 @@ fn compose_state<'a>(
     state
 }
 
+fn initial_screen(
+    header: &[u8],
+    chunk: &[u8],
+    accs: &HashSet<&[u8]>,
+    taken_headers: &Headers,
+    req_type: ReqType,
+) -> bool {
+    let chunk_len = chunk.len();
+    let div = match req_type {
+        ReqType::Balance => 2 * BLOCK_SIZE,
+        ReqType::Invoice => 4 * BLOCK_SIZE,
+        ReqType::Transfer => 5 * BLOCK_SIZE,
+    };
+    let header_holder = match req_type {
+        ReqType::Balance => taken_headers.balance,
+        ReqType::Invoice => taken_headers.invoice,
+        ReqType::Transfer => taken_headers.transfer,
+    };
+    (chunk_len > div && !accs.contains(&chunk[div..div + BLOCK_SIZE]) && header_holder.is_none())
+        || header_holder == Some(header)
+}
+
 // We assume that our state.headers are all valid for a single iteration of the solve algorithm.
 // From there, we can see if there is a valid way to parse the chunks. If there is, then we return
 // that valid parsing. If there is not, we kill the process?
@@ -147,59 +183,30 @@ fn solve(state: State) -> Option<State> {
         let len = chunk.len();
         // If our chunk length is invalid
         if len != 2 * BLOCK_SIZE && len != 4 * BLOCK_SIZE && len != 5 * BLOCK_SIZE {
+            let header = &chunk[0..BLOCK_SIZE];
+            println!("Attempting to solve chunk of length {}", len);
             for j in 0..3 {
-                if j == 0
-                    && len > 5 * BLOCK_SIZE
-                    && !state.accs.contains(&chunk[5 * BLOCK_SIZE..6 * BLOCK_SIZE])
-                {
-                    let req_type = ReqType::Transfer;
-                    let new_state = state.clone();
-                    let new_state = compose_state(new_state, chunk, i, req_type);
-                    let ret = solve(new_state);
-                    match ret {
-                        Some(cand) => {
-                            if check_valid(&cand.chunks, &cand.accs) {
-                                return Some(cand.to_owned());
-                            }
-                        }
-                        None => continue,
+                let req_type = match j {
+                    0 => ReqType::Transfer,
+                    1 => ReqType::Invoice,
+                    2 => ReqType::Balance,
+                    _ => panic!("Out of bound req type attempt"),
+                };
+                if !initial_screen(header, chunk, &state.accs, &state.headers, req_type) {
+                    continue;
+                }
+                let new_state = state.clone();
+                let mut new_state = compose_state(new_state, chunk, i, req_type);
+                new_state.headers.balance = Some(header);
+                println!("Initiating loop number: {}", j);
+                let ret = solve(new_state);
+                if let Some(cand) = ret {
+                    if validate_chunks(&cand.chunks, &cand.accs) {
+                        return Some(cand);
                     }
-                } else if j == 1
-                    && len > 4 * BLOCK_SIZE
-                    && !state.accs.contains(&chunk[4 * BLOCK_SIZE..5 * BLOCK_SIZE])
-                {
-                    let req_type = ReqType::Invoice;
-                    let new_state = state.clone();
-                    let new_state = compose_state(new_state, chunk, i, req_type);
-                    let ret = solve(new_state);
-                    match ret {
-                        Some(cand) => {
-                            if check_valid(&cand.chunks, &cand.accs) {
-                                return Some(cand.to_owned());
-                            }
-                        }
-                        None => continue,
-                    }
-                } else if j == 2
-                    && len > 2 * BLOCK_SIZE
-                    && !state.accs.contains(&chunk[2 * BLOCK_SIZE..3 * BLOCK_SIZE])
-                {
-                    let req_type = ReqType::Balance;
-                    let new_state = state.clone();
-                    let new_state = compose_state(new_state, chunk, i, req_type);
-                    let ret = solve(new_state);
-                    match ret {
-                        Some(cand) => {
-                            if check_valid(&cand.chunks, &cand.accs) {
-                                return Some(cand.to_owned());
-                            }
-                        }
-                        None => continue,
-                    }
-                } else {
-                    return None;
                 }
             }
+            return None;
         }
         // If we have a valid chunk length, continue
         else {
@@ -214,5 +221,5 @@ fn main() {
     // Getting our file
     let buf = create_buf();
     let state = State::new(&buf);
-    solve(state);
+    let ret = solve(state);
 }
