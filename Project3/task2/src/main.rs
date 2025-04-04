@@ -1,8 +1,9 @@
-use std::{env, fs::File, io::Read};
+use std::{collections::BTreeMap, env, fs::File, io::Read};
 
+// Block size. This is used everywhere
 const BLOCK_SIZE: usize = 16;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum ReqType {
     Balance,
     Invoice,
@@ -86,6 +87,7 @@ fn create_buf() -> Vec<u8> {
 // Finds all instances of the block that starts at start in buf
 fn find_block(buf: &[u8], start: usize) -> Vec<usize> {
     // Doing some sanity checks to make sure the start is valid
+    println!("Start: {}", start);
     if start % BLOCK_SIZE != 0 {
         panic!("Invalid starting index; not a multiple of block size");
     }
@@ -114,17 +116,34 @@ fn find_block(buf: &[u8], start: usize) -> Vec<usize> {
     found
 }
 
+// Finds the minimum difference between two instances of a given request header
+fn min_diff(locs: &[usize]) -> usize {
+    locs.windows(2)
+        .map(|x| x[0].abs_diff(x[1]))
+        .min_by(|x, y| x.partial_cmp(y).unwrap())
+        .unwrap()
+}
+
+// Finds the difference from the end of the given header
+fn diff_from_end(buf: &[u8], loc: usize) -> usize {
+    let locs = find_block(buf, loc);
+    let last_loc = locs[locs.len() - 1];
+    buf.len() - last_loc
+}
+
 // Produces chunks according to a request header assumption
+// TODO: This can produce out-of-bounds slices
 fn make_chunks(buf: &[u8], idx: usize, req_type: ReqType) -> Vec<&[u8]> {
     let instances = find_block(buf, idx);
     let inc = match req_type {
-        ReqType::Balance => 2,
-        ReqType::Invoice => 4,
-        ReqType::Transfer => 5,
+        ReqType::Balance => 2 * BLOCK_SIZE,
+        ReqType::Invoice => 4 * BLOCK_SIZE,
+        ReqType::Transfer => 5 * BLOCK_SIZE,
     };
     let mut chunks = Vec::new();
-    for instance in instances.iter() {
-        let chunk = &buf[instance * BLOCK_SIZE..(instance + inc) * BLOCK_SIZE];
+    for inst_start in instances.iter() {
+        let inst_end = inst_start + inc;
+        let chunk = &buf[*inst_start..inst_end];
         chunks.push(chunk);
     }
     chunks
@@ -135,6 +154,7 @@ fn make_chunks(buf: &[u8], idx: usize, req_type: ReqType) -> Vec<&[u8]> {
 // that valid parsing. If there is not, we kill the process?
 fn solve<'a>(state: &'a mut State<'a>) -> bool {
     // Base case: we check if there are any contradictions
+    let buf_len = state.buf.len();
     if state.headers.num_found() == 3 {
         // For each chunk in our collection of chunks
         for chunk in state.chunks.iter() {
@@ -181,7 +201,7 @@ fn solve<'a>(state: &'a mut State<'a>) -> bool {
     else {
         // While we have not assigned each of our header types
         let mut block = 0;
-        while block < state.buf.len() / BLOCK_SIZE {
+        while block < buf_len / BLOCK_SIZE && state.headers.num_found() != 3 {
             // Try to assign headers to our various blocks
             let header = &state.buf[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE];
             // If this header is assigned, go to our next block and update the block we are
@@ -198,49 +218,75 @@ fn solve<'a>(state: &'a mut State<'a>) -> bool {
             }
             // Otherwise, we try to assign our header and break up the trace wherever we see that
             // request into chunks
-            if state.headers.balance.is_none() {
-                state.headers.found_balance(state.buf, block);
-                block += 2;
-            } else if state.headers.transfer.is_none() {
-                state.headers.found_transfer(state.buf, block);
+            let locs = find_block(state.buf, block * BLOCK_SIZE);
+            let min_diff = min_diff(&locs);
+            let diff_from_end = diff_from_end(state.buf, block * BLOCK_SIZE);
+            println!("Block number: {}", &block);
+            println!("Minimum diff: {}", &min_diff);
+            println!("Diff from end: {}", &diff_from_end);
+            if state.headers.transfer.is_none()
+                && diff_from_end >= 5 * BLOCK_SIZE
+                && min_diff >= 5 * BLOCK_SIZE
+            {
+                state.headers.found_transfer(state.buf, block * BLOCK_SIZE);
                 block += 5;
-            } else if state.headers.invoice.is_none() {
-                state.headers.found_invoice(state.buf, block);
+            } else if state.headers.invoice.is_none()
+                && diff_from_end >= 4 * BLOCK_SIZE
+                && min_diff >= 4 * BLOCK_SIZE
+            {
+                state.headers.found_invoice(state.buf, block * BLOCK_SIZE);
                 block += 4;
+            } else if state.headers.balance.is_none() && diff_from_end >= 2 * BLOCK_SIZE {
+                state.headers.found_balance(state.buf, block * BLOCK_SIZE);
+                block += 2;
+            } else {
+                panic!("No valid assignment exists");
             }
         }
         // Once we've done this, we partition our trace into chunks and return the solved value
         block = 0;
-        let mut done = Vec::new();
+        let mut done = BTreeMap::new();
         // While the blocks we've assigned are not comprehensive
-        while block < state.buf.len() / BLOCK_SIZE {
+        while block < buf_len / BLOCK_SIZE {
             // If we have done a particular block already in a previous iteration, we skip it.
-            if done.binary_search(&block).is_ok() {
-                println!("Done");
+            if done.contains_key(&block) {
+                let inc = match done.get(&block).unwrap() {
+                    ReqType::Balance => 2,
+                    ReqType::Invoice => 4,
+                    ReqType::Transfer => 5,
+                };
+                block += inc;
                 continue;
             }
             // We take our header and all instances of that header, adding these to the indices we
             // have chunked already and sorting them.
             let header = &state.buf[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE];
             let instances = find_block(state.buf, block * BLOCK_SIZE);
-            done = [done, instances].concat();
-            done.sort();
+            let req_type;
 
             // Because we have a new request header, we perform the chunking for that type.
+            // We need to verify that our chunk doesn't cause an out-of-bound error.
             let new_chunks;
             if Some(header) == state.headers.balance {
-                new_chunks = make_chunks(state.buf, block, ReqType::Balance);
+                req_type = ReqType::Balance;
+                new_chunks = make_chunks(state.buf, block * BLOCK_SIZE, req_type);
                 block += 2;
             } else if Some(header) == state.headers.invoice {
-                new_chunks = make_chunks(state.buf, block, ReqType::Invoice);
+                req_type = ReqType::Invoice;
+                new_chunks = make_chunks(state.buf, block * BLOCK_SIZE, req_type);
                 block += 4;
             } else {
-                new_chunks = make_chunks(state.buf, block, ReqType::Transfer);
+                req_type = ReqType::Transfer;
+                new_chunks = make_chunks(state.buf, block * BLOCK_SIZE, req_type);
                 block += 5;
             }
+            // Adding the new values we've just seen to our map
+            for val in instances.iter() {
+                done.insert(*val, req_type);
+            }
             state.chunks = [state.chunks.clone(), new_chunks].concat();
-            state.chunks.sort();
         }
+        state.chunks.sort();
         solve(state)
     }
 }
