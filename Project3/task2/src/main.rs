@@ -41,6 +41,39 @@ impl<'a> State<'a> {
             },
         }
     }
+    pub fn print(&self) {
+        if self.headers.transfer.is_none()
+            || self.headers.invoice.is_none()
+            || self.headers.balance.is_none()
+        {
+            println!(
+                "State not properly found! Attempt to initialize first with the solve function"
+            );
+        } else {
+            for i in 0..3 {
+                match i {
+                    0 => {
+                        let idx = find_header(self.buf, self.headers.balance.unwrap());
+                        let occurences = find_block(self.buf, idx).len();
+                        println!("Balance occurences: {}", occurences);
+                    }
+                    1 => {
+                        let idx = find_header(self.buf, self.headers.invoice.unwrap());
+                        let occurences = find_block(self.buf, idx).len();
+                        println!("Invoice occurences: {}", occurences);
+                    }
+                    2 => {
+                        let idx = find_header(self.buf, self.headers.transfer.unwrap());
+                        let occurences = find_block(self.buf, idx).len();
+                        println!("Transfer occurences: {}", occurences);
+                    }
+                    _ => {
+                        panic!("Out of bound req type when printing");
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Helper function to create our file
@@ -174,6 +207,13 @@ fn initial_screen(
         || header_holder == Some(header)
 }
 
+fn is_req_header(buf: &[u8], headers: &Headers) -> bool {
+    if buf.len() != BLOCK_SIZE {
+        panic!("Invalid buffer length when attempting to parse header");
+    }
+    Some(buf) == headers.balance || Some(buf) == headers.invoice || Some(buf) == headers.transfer
+}
+
 // We assume that our state.headers are all valid for a single iteration of the solve algorithm.
 // From there, we can see if there is a valid way to parse the chunks. If there is, then we return
 // that valid parsing. If there is not, we kill the process?
@@ -181,10 +221,12 @@ fn solve(state: State) -> Option<State> {
     // Step 1: find an unsolved chunk
     for (i, chunk) in state.chunks.iter().enumerate() {
         let len = chunk.len();
+        let header = &chunk[0..BLOCK_SIZE];
         // If our chunk length is invalid
+        if is_req_header(header, &state.headers) {
+            continue;
+        }
         if len != 2 * BLOCK_SIZE && len != 4 * BLOCK_SIZE && len != 5 * BLOCK_SIZE {
-            let header = &chunk[0..BLOCK_SIZE];
-            println!("Attempting to solve chunk of length {}", len);
             for j in 0..3 {
                 let req_type = match j {
                     0 => ReqType::Transfer,
@@ -192,13 +234,26 @@ fn solve(state: State) -> Option<State> {
                     2 => ReqType::Balance,
                     _ => panic!("Out of bound req type attempt"),
                 };
+                // If our assignment does not pass the initial screening, then we simply continue
+                // and try a different assignment
                 if !initial_screen(header, chunk, &state.accs, &state.headers, req_type) {
                     continue;
                 }
+                // Otherwise, we try out that configuration and create a new state object
                 let new_state = state.clone();
                 let mut new_state = compose_state(new_state, chunk, i, req_type);
-                new_state.headers.balance = Some(header);
-                println!("Initiating loop number: {}", j);
+                match j {
+                    0 => {
+                        new_state.headers.transfer = Some(header);
+                    }
+                    1 => {
+                        new_state.headers.invoice = Some(header);
+                    }
+                    2 => {
+                        new_state.headers.balance = Some(header);
+                    }
+                    _ => panic!("Out of bound req attempt"),
+                };
                 let ret = solve(new_state);
                 if let Some(cand) = ret {
                     if validate_chunks(&cand.chunks, &cand.accs) {
@@ -207,9 +262,7 @@ fn solve(state: State) -> Option<State> {
                 }
             }
             return None;
-        }
-        // If we have a valid chunk length, continue
-        else {
+        } else {
             continue;
         }
     }
@@ -222,4 +275,8 @@ fn main() {
     let buf = create_buf();
     let state = State::new(&buf);
     let ret = solve(state);
+    match ret {
+        Some(res) => res.print(),
+        None => println!("Could not find a valid assignment"),
+    }
 }
