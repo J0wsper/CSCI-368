@@ -74,18 +74,18 @@ impl<'a> State<'a> {
                 match i {
                     0 => {
                         let idx = find_header(self.buf, self.headers.balance.unwrap());
-                        let locs = find_block(self.buf, idx);
-                        println!("Number of balance requests: {}", locs.len());
+                        let locs = find_block(self.buf, idx).len();
+                        println!("Number of balance requests: {}", locs);
                     }
                     1 => {
                         let idx = find_header(self.buf, self.headers.invoice.unwrap());
-                        let locs = find_block(self.buf, idx);
-                        println!("Number of invoice requests: {}", locs.len());
+                        let locs = find_block(self.buf, idx).len();
+                        println!("Number of invoice requests: {}", locs);
                     }
                     2 => {
                         let idx = find_header(self.buf, self.headers.transfer.unwrap());
-                        let locs = find_block(self.buf, idx);
-                        println!("Number of transfer requests: {}", locs.len());
+                        let locs = find_block(self.buf, idx).len();
+                        println!("Number of transfer requests: {}", locs);
                     }
                     _ => panic!("Incorrect number of headers filled in for state"),
                 }
@@ -123,7 +123,7 @@ fn find_block(buf: &[u8], start: usize) -> Vec<usize> {
     while block < buf.len() / BLOCK_SIZE {
         let block_index = block * BLOCK_SIZE;
         let line = &buf[block_index..block_index + BLOCK_SIZE];
-        if line == req {
+        if *line == *req {
             found.push(block_index);
         }
         block += 1;
@@ -177,6 +177,8 @@ fn make_chunks(buf: &[u8], idx: usize, req_type: ReqType) -> Vec<&[u8]> {
     };
     let mut chunks = Vec::new();
     for inst_start in instances.iter() {
+        println!("Inst start: {}", inst_start);
+        dbg!(&req_type);
         let inst_end = inst_start + inc;
         let chunk = &buf[*inst_start..inst_end];
         chunks.push(chunk);
@@ -190,6 +192,7 @@ fn make_chunks(buf: &[u8], idx: usize, req_type: ReqType) -> Vec<&[u8]> {
 fn solve(state: &mut State) -> bool {
     // Base case: we check if there are any contradictions
     let buf_len = state.buf.len();
+    // TODO: I don't think this recurses properly.
     if state.headers.num_found() == 3 {
         // For each chunk in our collection of chunks
         for chunk in state.chunks.iter() {
@@ -197,28 +200,29 @@ fn solve(state: &mut State) -> bool {
             let mut block = 0;
             while block < chunk.len() / BLOCK_SIZE {
                 // Getting our different header types and their instances
-                let balances = match state.headers.balance {
-                    Some(instances) => instances,
+                let balance = match state.headers.balance {
+                    Some(i) => i,
                     None => panic!("Could not find balance instances in solved case"),
                 };
-                let transfers = match state.headers.transfer {
-                    Some(instances) => instances,
+                let transfer = match state.headers.transfer {
+                    Some(i) => i,
                     None => panic!("Could not find transfer instances in solved case"),
                 };
-                let invoices = match state.headers.invoice {
-                    Some(instances) => instances,
+                let invoice = match state.headers.invoice {
+                    Some(i) => i,
                     None => panic!("Could not find invoice instances in solved case"),
                 };
+                dbg!(transfer);
                 // We want to break up our chunks according to our headers and see if there is a
                 // proper division.
                 let header = &chunk[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE];
                 // For each of our header request types, we increment the block we're looking at by
                 // that request type's length
-                if balances == header {
+                if balance == header {
                     block += 2;
-                } else if transfers == header {
+                } else if transfer == header {
                     block += 5
-                } else if invoices == header {
+                } else if invoice == header {
                     block += 4;
                 }
                 // This is the invalid case so we say that our given header assumption are false
@@ -294,7 +298,6 @@ fn solve(state: &mut State) -> bool {
             // We take our header and all instances of that header, adding these to the indices we
             // have chunked already and sorting them.
             let header = &state.buf[block_index..block_index + BLOCK_SIZE];
-            // TODO: This call can introduce out-of-bounds errors
             let instances = find_block(state.buf, block_index);
             let req_type;
 
@@ -310,6 +313,7 @@ fn solve(state: &mut State) -> bool {
                 new_chunks = make_chunks(state.buf, block_index, req_type);
                 block += 4;
             } else {
+                // TODO: This produces out-of-bound errors
                 req_type = ReqType::Transfer;
                 new_chunks = make_chunks(state.buf, block_index, req_type);
                 block += 5;
