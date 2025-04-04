@@ -66,14 +66,40 @@ impl<'a> State<'a> {
             headers: Headers::new(),
         }
     }
+    pub fn print(&self) {
+        if self.headers.num_found() != 3 {
+            println!("Valid assignment has not been found yet!");
+        } else {
+            for i in 0..3 {
+                match i {
+                    0 => {
+                        let idx = find_header(self.buf, self.headers.balance.unwrap());
+                        let locs = find_block(self.buf, idx);
+                        println!("Number of balance requests: {}", locs.len());
+                    }
+                    1 => {
+                        let idx = find_header(self.buf, self.headers.invoice.unwrap());
+                        let locs = find_block(self.buf, idx);
+                        println!("Number of invoice requests: {}", locs.len());
+                    }
+                    2 => {
+                        let idx = find_header(self.buf, self.headers.transfer.unwrap());
+                        let locs = find_block(self.buf, idx);
+                        println!("Number of transfer requests: {}", locs.len());
+                    }
+                    _ => panic!("Incorrect number of headers filled in for state"),
+                }
+            }
+        }
+    }
 }
 
 // Helper function to create our file
 fn create_buf() -> Vec<u8> {
     // Collects the command line arguments
     let args: Vec<String> = env::args().collect();
-    // Gets the provided file path
-    let file_path = &args[1];
+    // Gets the provided file path as the last command line argument
+    let file_path = &args[args.len() - 1];
     // Creates our buffer and writes the contents of the file to it
     // NOTE: This will be slow for giant files. For that, a BufReader is superior
     let mut buf: Vec<u8> = Vec::new();
@@ -87,37 +113,47 @@ fn create_buf() -> Vec<u8> {
 // Finds all instances of the block that starts at start in buf
 fn find_block(buf: &[u8], start: usize) -> Vec<usize> {
     // Doing some sanity checks to make sure the start is valid
-    println!("Start: {}", start);
     if start % BLOCK_SIZE != 0 {
         panic!("Invalid starting index; not a multiple of block size");
     }
     // Getting the initial reference block
-    let initial_request = &buf[start..start + BLOCK_SIZE];
+    let req = &buf[start..start + BLOCK_SIZE];
     let mut found = Vec::new();
-    for (i, char) in buf.iter().enumerate() {
-        // If we find a character that matches up with the first character of our reference block
-        if *char == initial_request[0] {
-            let mut curr = char;
-            let mut buf_index = i;
-            let mut initial_index = 0;
-            // Loop through until we reach BLOCK SIZE and see if the similarity matches up
-            while initial_index < BLOCK_SIZE && *curr == initial_request[initial_index] {
-                buf_index += 1;
-                initial_index += 1;
-                curr = &buf[buf_index];
-            }
-            // If we've reached BLOCK SIZE and the request headers are similar, add it to our
-            // vector
-            if initial_index == BLOCK_SIZE {
-                found.push(i);
-            }
+    let mut block = 0;
+    while block < buf.len() / BLOCK_SIZE {
+        let block_index = block * BLOCK_SIZE;
+        let line = &buf[block_index..block_index + BLOCK_SIZE];
+        if line == req {
+            found.push(block_index);
         }
+        block += 1;
     }
     found
 }
 
+// Finds the instance of a given header
+fn find_header(buf: &[u8], header: &[u8]) -> usize {
+    let mut block = 0;
+    while block < buf.len() / BLOCK_SIZE {
+        let block_index = block * BLOCK_SIZE;
+        let line = &buf[block_index..block_index + BLOCK_SIZE];
+        if line == header {
+            return block_index;
+        }
+        block += 1;
+    }
+    panic!("Could not find header in trace");
+}
+
 // Finds the minimum difference between two instances of a given request header
-fn min_diff(locs: &[usize]) -> usize {
+fn min_diff(buf: &[u8], loc: usize) -> usize {
+    let locs = find_block(buf, loc);
+    if locs.is_empty() {
+        panic!("Could not find min diff of specified block");
+    }
+    if locs.len() == 1 {
+        return diff_from_end(buf, loc);
+    }
     locs.windows(2)
         .map(|x| x[0].abs_diff(x[1]))
         .min_by(|x, y| x.partial_cmp(y).unwrap())
@@ -132,7 +168,6 @@ fn diff_from_end(buf: &[u8], loc: usize) -> usize {
 }
 
 // Produces chunks according to a request header assumption
-// TODO: This can produce out-of-bounds slices
 fn make_chunks(buf: &[u8], idx: usize, req_type: ReqType) -> Vec<&[u8]> {
     let instances = find_block(buf, idx);
     let inc = match req_type {
@@ -152,7 +187,7 @@ fn make_chunks(buf: &[u8], idx: usize, req_type: ReqType) -> Vec<&[u8]> {
 // We assume that our state.headers are all valid for a single iteration of the solve algorithm.
 // From there, we can see if there is a valid way to parse the chunks. If there is, then we return
 // that valid parsing. If there is not, we kill the process?
-fn solve<'a>(state: &'a mut State<'a>) -> bool {
+fn solve(state: &mut State) -> bool {
     // Base case: we check if there are any contradictions
     let buf_len = state.buf.len();
     if state.headers.num_found() == 3 {
@@ -202,8 +237,9 @@ fn solve<'a>(state: &'a mut State<'a>) -> bool {
         // While we have not assigned each of our header types
         let mut block = 0;
         while block < buf_len / BLOCK_SIZE && state.headers.num_found() != 3 {
+            let block_index = block * BLOCK_SIZE;
             // Try to assign headers to our various blocks
-            let header = &state.buf[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE];
+            let header = &state.buf[block_index..block_index + BLOCK_SIZE];
             // If this header is assigned, go to our next block and update the block we are
             // attempting to assign.
             if Some(header) == state.headers.balance {
@@ -218,26 +254,22 @@ fn solve<'a>(state: &'a mut State<'a>) -> bool {
             }
             // Otherwise, we try to assign our header and break up the trace wherever we see that
             // request into chunks
-            let locs = find_block(state.buf, block * BLOCK_SIZE);
-            let min_diff = min_diff(&locs);
-            let diff_from_end = diff_from_end(state.buf, block * BLOCK_SIZE);
-            println!("Block number: {}", &block);
-            println!("Minimum diff: {}", &min_diff);
-            println!("Diff from end: {}", &diff_from_end);
+            let min_diff = min_diff(state.buf, block_index);
+            let diff_from_end = diff_from_end(state.buf, block_index);
             if state.headers.transfer.is_none()
                 && diff_from_end >= 5 * BLOCK_SIZE
                 && min_diff >= 5 * BLOCK_SIZE
             {
-                state.headers.found_transfer(state.buf, block * BLOCK_SIZE);
+                state.headers.found_transfer(state.buf, block_index);
                 block += 5;
             } else if state.headers.invoice.is_none()
                 && diff_from_end >= 4 * BLOCK_SIZE
                 && min_diff >= 4 * BLOCK_SIZE
             {
-                state.headers.found_invoice(state.buf, block * BLOCK_SIZE);
+                state.headers.found_invoice(state.buf, block_index);
                 block += 4;
             } else if state.headers.balance.is_none() && diff_from_end >= 2 * BLOCK_SIZE {
-                state.headers.found_balance(state.buf, block * BLOCK_SIZE);
+                state.headers.found_balance(state.buf, block_index);
                 block += 2;
             } else {
                 panic!("No valid assignment exists");
@@ -248,6 +280,7 @@ fn solve<'a>(state: &'a mut State<'a>) -> bool {
         let mut done = BTreeMap::new();
         // While the blocks we've assigned are not comprehensive
         while block < buf_len / BLOCK_SIZE {
+            let block_index = block * BLOCK_SIZE;
             // If we have done a particular block already in a previous iteration, we skip it.
             if done.contains_key(&block) {
                 let inc = match done.get(&block).unwrap() {
@@ -260,8 +293,9 @@ fn solve<'a>(state: &'a mut State<'a>) -> bool {
             }
             // We take our header and all instances of that header, adding these to the indices we
             // have chunked already and sorting them.
-            let header = &state.buf[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE];
-            let instances = find_block(state.buf, block * BLOCK_SIZE);
+            let header = &state.buf[block_index..block_index + BLOCK_SIZE];
+            // TODO: This call can introduce out-of-bounds errors
+            let instances = find_block(state.buf, block_index);
             let req_type;
 
             // Because we have a new request header, we perform the chunking for that type.
@@ -269,15 +303,15 @@ fn solve<'a>(state: &'a mut State<'a>) -> bool {
             let new_chunks;
             if Some(header) == state.headers.balance {
                 req_type = ReqType::Balance;
-                new_chunks = make_chunks(state.buf, block * BLOCK_SIZE, req_type);
+                new_chunks = make_chunks(state.buf, block_index, req_type);
                 block += 2;
             } else if Some(header) == state.headers.invoice {
                 req_type = ReqType::Invoice;
-                new_chunks = make_chunks(state.buf, block * BLOCK_SIZE, req_type);
+                new_chunks = make_chunks(state.buf, block_index, req_type);
                 block += 4;
             } else {
                 req_type = ReqType::Transfer;
-                new_chunks = make_chunks(state.buf, block * BLOCK_SIZE, req_type);
+                new_chunks = make_chunks(state.buf, block_index, req_type);
                 block += 5;
             }
             // Adding the new values we've just seen to our map
@@ -292,8 +326,10 @@ fn solve<'a>(state: &'a mut State<'a>) -> bool {
 }
 
 fn main() {
+    env::set_var("RUST_BACKTRACE", "1");
     // Getting our file
     let buf = create_buf();
     let mut state = State::new(&buf);
     solve(&mut state);
+    state.print();
 }
