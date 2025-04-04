@@ -2,6 +2,9 @@ use std::{collections::HashSet, env, fs::File, io::Read};
 
 // Block size. This is used everywhere
 const BLOCK_SIZE: usize = 16;
+const TRANSFER_SIZE: usize = 5 * BLOCK_SIZE;
+const INVOICE_SIZE: usize = 4 * BLOCK_SIZE;
+const BALANCE_SIZE: usize = 2 * BLOCK_SIZE;
 
 #[derive(Debug, Clone, Copy)]
 enum ReqType {
@@ -41,7 +44,7 @@ impl<'a> State<'a> {
             },
         }
     }
-    pub fn print(&self) {
+    pub fn print_pt2(&self) {
         if self.headers.transfer.is_none()
             || self.headers.invoice.is_none()
             || self.headers.balance.is_none()
@@ -150,9 +153,9 @@ fn validate_chunks(chunks: &Vec<&[u8]>, accs: &HashSet<&[u8]>) -> bool {
 
 fn split_chunks(chunk: &[u8], req_type: ReqType) -> (&[u8], &[u8]) {
     let div = match req_type {
-        ReqType::Balance => 2 * BLOCK_SIZE,
-        ReqType::Invoice => 4 * BLOCK_SIZE,
-        ReqType::Transfer => 5 * BLOCK_SIZE,
+        ReqType::Balance => BALANCE_SIZE,
+        ReqType::Invoice => INVOICE_SIZE,
+        ReqType::Transfer => TRANSFER_SIZE,
     };
     let first_chunk = &chunk[0..div];
     let second_chunk = &chunk[div..];
@@ -194,9 +197,9 @@ fn initial_screen(
 ) -> bool {
     let chunk_len = chunk.len();
     let div = match req_type {
-        ReqType::Balance => 2 * BLOCK_SIZE,
-        ReqType::Invoice => 4 * BLOCK_SIZE,
-        ReqType::Transfer => 5 * BLOCK_SIZE,
+        ReqType::Balance => BALANCE_SIZE,
+        ReqType::Invoice => INVOICE_SIZE,
+        ReqType::Transfer => TRANSFER_SIZE,
     };
     let header_holder = match req_type {
         ReqType::Balance => taken_headers.balance,
@@ -226,7 +229,7 @@ fn solve(state: State) -> Option<State> {
         if is_req_header(header, &state.headers) {
             continue;
         }
-        if len != 2 * BLOCK_SIZE && len != 4 * BLOCK_SIZE && len != 5 * BLOCK_SIZE {
+        if len != BALANCE_SIZE && len != INVOICE_SIZE && len != TRANSFER_SIZE {
             for j in 0..3 {
                 let req_type = match j {
                     0 => ReqType::Transfer,
@@ -274,9 +277,5 @@ fn main() {
     // Getting our file
     let buf = create_buf();
     let state = State::new(&buf);
-    let ret = solve(state);
-    match ret {
-        Some(res) => res.print(),
-        None => println!("Could not find a valid assignment"),
-    }
+    let _ret = solve(state);
 }
