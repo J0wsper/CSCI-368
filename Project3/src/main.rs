@@ -1,4 +1,9 @@
-use std::{collections::HashSet, env, fs::File, io::Read};
+use std::{
+    collections::HashSet,
+    env,
+    fs::File,
+    io::{Read, Write},
+};
 
 // Block size. This is used everywhere
 const BLOCK_SIZE: usize = 16;
@@ -91,6 +96,12 @@ impl<'a> State<'a> {
             );
             return;
         }
+        // Finding all of the transfer requests
+        let mut transfers = Vec::new();
+        let mut src_acc = Vec::new();
+        let mut amount = Vec::new();
+        let mut time = Vec::new();
+        let mut flag = true;
         for (i, chunk) in self.chunks.iter().enumerate() {
             let header = &chunk[0..BLOCK_SIZE];
             if header == self.headers.balance.unwrap() {
@@ -99,8 +110,55 @@ impl<'a> State<'a> {
                 println!("Request {} is an invoice request", i);
             } else {
                 println!("Request {} is a transfer request", i);
+                transfers.push(self.chunks[i]);
+                if flag {
+                    // Assigning the first source, amount and time we find
+                    src_acc = self.chunks[i][BLOCK_SIZE..2 * BLOCK_SIZE].to_vec();
+                    amount = self.chunks[i][3 * BLOCK_SIZE..4 * BLOCK_SIZE].to_vec();
+                    time = self.chunks[i][4 * BLOCK_SIZE..5 * BLOCK_SIZE].to_vec();
+                    flag = false;
+                }
             }
         }
+        // Getting all of the accounts that we can
+        let mut all_accs = Vec::new();
+        for chunk in self.chunks.iter() {
+            all_accs.push(&chunk[BLOCK_SIZE..2 * BLOCK_SIZE]);
+            if chunk.len() > BALANCE_SIZE {
+                all_accs.push(&chunk[2 * BLOCK_SIZE..3 * BLOCK_SIZE]);
+            }
+        }
+        // Finding all accounts that are the destination for some transfer request
+        let dest_accs: Vec<&[u8]> = transfers
+            .iter()
+            .map(|x| &x[2 * BLOCK_SIZE..3 * BLOCK_SIZE])
+            .collect();
+        // Finding our account
+        let our_acc: Vec<&&[u8]> = all_accs
+            .iter()
+            .filter(|x| all_accs.iter().filter(|y| y == x).count() == 1 && dest_accs.contains(x))
+            .collect();
+        let our_acc = match our_acc.len() {
+            0 => panic!("Could not find our account"),
+            _ => *our_acc[0],
+        };
+        // Slapping it all together into a forged request
+        let our_acc = our_acc.to_vec();
+        let transfer_header = self.headers.transfer.unwrap().to_vec();
+        let forged = [transfer_header, src_acc, our_acc, time, amount].concat();
+        // Writing our forged request to task3.out
+        let mut out = File::create("task3.out").expect("task3.out file name already taken");
+        let _ = out.write_all(&forged);
+    }
+
+    pub fn print_pt4(&self) {
+        if !self.is_solved() {
+            println!(
+                "State not properly found! Attempt to initialize first with the solve function"
+            );
+            return;
+        }
+        for (i, chunk) in self.chunks.iter().enumerate() {}
     }
 }
 
