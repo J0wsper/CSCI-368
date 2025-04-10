@@ -59,6 +59,18 @@ impl<'a> State<'a> {
             && self.headers.invoice.is_some()
             && self.headers.balance.is_some()
     }
+    pub fn print_headers(&self) {
+        for chunk in self.chunks.iter() {
+            let header = &chunk[0..BLOCK_SIZE];
+            if header == self.headers.balance.unwrap() {
+                println!("BALANCE");
+            } else if header == self.headers.invoice.unwrap() {
+                println!("INVOICE");
+            } else {
+                println!("TRANSFER");
+            }
+        }
+    }
     pub fn print_pt2(&self) {
         if !self.is_solved() {
             println!(
@@ -66,41 +78,16 @@ impl<'a> State<'a> {
             );
             return;
         }
-        for i in 0..3 {
-            match i {
-                0 => {
-                    let idx = find_header(self.buf, self.headers.balance.unwrap());
-                    let occurences = find_block(self.buf, idx).len();
-                    println!("Balance occurences: {}", occurences);
-                }
-                1 => {
-                    let idx = find_header(self.buf, self.headers.invoice.unwrap());
-                    let occurences = find_block(self.buf, idx).len();
-                    println!("Invoice occurences: {}", occurences);
-                }
-                2 => {
-                    let idx = find_header(self.buf, self.headers.transfer.unwrap());
-                    let occurences = find_block(self.buf, idx).len();
-                    println!("Transfer occurences: {}", occurences);
-                }
-                _ => {
-                    panic!("Out of bound req type when printing");
-                }
-            }
-        }
+        self.print_headers();
     }
-    //
     pub fn print_pt3(&self) {
-        for (i, chunk) in self.chunks.iter().enumerate() {
-            let header = &chunk[0..BLOCK_SIZE];
-            if header == self.headers.balance.unwrap() {
-                println!("Request {} is a balance request", i);
-            } else if header == self.headers.invoice.unwrap() {
-                println!("Request {} is an invoice request", i);
-            } else {
-                println!("Request {} is a transfer request", i);
-            }
+        if !self.is_solved() {
+            println!(
+                "State not properly found! Attempt to initialize first with the solve function"
+            );
+            return;
         }
+        self.print_headers();
         let our_acc = find_our_acc(&self.chunks, &self.headers, false);
         let our_acc_pos = find_header(self.buf, &our_acc);
         let transfer_header = &self.buf[our_acc_pos - (2 * BLOCK_SIZE)..our_acc_pos - BLOCK_SIZE];
@@ -108,11 +95,11 @@ impl<'a> State<'a> {
         let time = &self.buf[our_acc_pos + BLOCK_SIZE..our_acc_pos + (2 * BLOCK_SIZE)];
         let amount = &self.buf[our_acc_pos + (2 * BLOCK_SIZE)..our_acc_pos + (3 * BLOCK_SIZE)];
         let forged = [transfer_header, src_acc, &our_acc, time, amount].concat();
+        let full_stream = [self.buf, &forged].concat();
         // Writing our forged request to task3.out
         let mut out = File::create("task3.out").expect("task3.out file name already taken");
-        let _ = out.write_all(&forged);
+        let _ = out.write_all(&full_stream);
     }
-    // TODO: This amount might be the same as the original transfer.
     pub fn print_pt4(&self) {
         if !self.is_solved() {
             println!(
@@ -120,36 +107,37 @@ impl<'a> State<'a> {
             );
             return;
         }
-        // Finding all of the transfer requests
-        let mut transfers = Vec::new();
-        let mut src_acc = Vec::new();
-        let mut amount = Vec::new();
-        let mut time = Vec::new();
-        let mut flag = true;
-        for (i, chunk) in self.chunks.iter().enumerate() {
+        self.print_headers();
+        // Finding our account
+        let our_acc = find_our_acc(&self.chunks, &self.headers, false);
+        let our_acc_pos = find_header(self.buf, &our_acc);
+        // Getting the stream slices before and after the request we're modifying
+        let after_slice = &self.buf[our_acc_pos + (3 * BLOCK_SIZE)..];
+        let before_slice = &self.buf[..our_acc_pos - (2 * BLOCK_SIZE)];
+        // Getting all of the appropriate data fields
+        let transfer_header = self.headers.transfer.unwrap();
+        let src_acc = &self.buf[our_acc_pos - BLOCK_SIZE..our_acc_pos];
+        let time = &self.buf[our_acc_pos + BLOCK_SIZE..our_acc_pos + (2 * BLOCK_SIZE)];
+        let original_amount =
+            &self.buf[our_acc_pos + (2 * BLOCK_SIZE)..our_acc_pos + (3 * BLOCK_SIZE)];
+        let mut new_amount = Vec::new();
+        // Finding our new amount to transfer
+        for chunk in self.chunks.iter() {
             let header = &chunk[0..BLOCK_SIZE];
-            if header == self.headers.balance.unwrap() {
-                println!("Request {} is a balance request", i);
-            } else if header == self.headers.invoice.unwrap() {
-                println!("Request {} is an invoice request", i);
-            } else {
-                println!("Request {} is a transfer request", i);
-                transfers.push(self.chunks[i]);
-                if flag {
-                    // Assigning the first source, amount and time we find
-                    src_acc = self.chunks[i][BLOCK_SIZE..2 * BLOCK_SIZE].to_vec();
-                    amount = self.chunks[i][3 * BLOCK_SIZE..4 * BLOCK_SIZE].to_vec();
-                    time = self.chunks[i][4 * BLOCK_SIZE..5 * BLOCK_SIZE].to_vec();
-                    flag = false;
+            if header == self.headers.invoice.unwrap() {
+                let cand_amount = &chunk[3 * BLOCK_SIZE..4 * BLOCK_SIZE];
+                if cand_amount != original_amount {
+                    new_amount = cand_amount.to_vec();
+                    break;
                 }
             }
         }
-        let our_acc = find_our_acc(&self.chunks, &self.headers, false);
-        let transfer_header = self.headers.transfer.unwrap().to_vec();
-        let forged = [transfer_header, src_acc, our_acc, time, amount].concat();
+        // Forging a new request stream
+        let forged = [transfer_header, src_acc, &our_acc, time, &new_amount].concat();
+        let new_stream = [before_slice, &forged, after_slice].concat();
         // Writing our forged request to task3.out
         let mut out = File::create("task4.out").expect("task4.out file name already taken");
-        let _ = out.write_all(&forged);
+        let _ = out.write_all(&new_stream);
     }
     pub fn print_pt5(&self) {
         if !self.is_solved() {
@@ -158,31 +146,26 @@ impl<'a> State<'a> {
             );
             return;
         }
-        let mut time = Vec::new();
-        let mut flag = true;
-        for (i, chunk) in self.chunks.iter().enumerate() {
-            let header = &chunk[0..BLOCK_SIZE];
-            if header == self.headers.balance.unwrap() {
-                println!("Request {} is a balance request", i);
-            } else if header == self.headers.invoice.unwrap() {
-                println!("Request {} is an invoice request", i);
-            } else {
-                println!("Request {} is a transfer request", i);
-                if flag {
-                    time = self.chunks[i][4 * BLOCK_SIZE..5 * BLOCK_SIZE].to_vec();
-                    flag = false;
-                }
-            }
-        }
-        // let transfer_header = self.headers.transfer.unwrap().to_vec();
+        self.print_headers();
+        let transfer_header = self.headers.transfer.unwrap().to_vec();
         let our_acc = find_our_acc(&self.chunks, &self.headers, true);
         let our_acc_pos = find_header(self.buf, &our_acc);
-        let dest_acc = &self.buf[our_acc_pos + BLOCK_SIZE..our_acc_pos + (2 * BLOCK_SIZE)];
-        let transfer_header = &self.buf[our_acc_pos - BLOCK_SIZE..our_acc_pos];
-        let amount = &self.buf[our_acc_pos + (2 * BLOCK_SIZE)..our_acc_pos + (3 * BLOCK_SIZE)];
-        let forged = [transfer_header, dest_acc, &our_acc, &time, amount].concat();
+        let after_slice = &self.buf[our_acc_pos + (2 * BLOCK_SIZE)..];
+        let before_slice = &self.buf[..our_acc_pos - (2 * BLOCK_SIZE)];
+        let req_account = &self.buf[our_acc_pos - BLOCK_SIZE..our_acc_pos];
+        let amount = &self.buf[our_acc_pos + BLOCK_SIZE..our_acc_pos + (2 * BLOCK_SIZE)];
+        let mut time = Vec::new();
+        for chunk in self.chunks.iter() {
+            let header = &chunk[0..BLOCK_SIZE];
+            if header == self.headers.transfer.unwrap() {
+                time = chunk[3 * BLOCK_SIZE..4 * BLOCK_SIZE].to_vec();
+                break;
+            }
+        }
+        let forged = [&transfer_header, req_account, &our_acc, &time, amount].concat();
+        let new_stream = [before_slice, &forged, after_slice].concat();
         let mut out = File::create("task5.out").expect("task5.out file name already taken");
-        let _ = out.write_all(&forged);
+        let _ = out.write_all(&new_stream);
     }
 }
 
@@ -193,7 +176,6 @@ fn create_buf() -> Vec<u8> {
     // Gets the provided file path as the last command line argument
     let file_path = &args[args.len() - 1];
     // Creates our buffer and writes the contents of the file to it
-    // NOTE: This will be slow for giant files. For that, a BufReader is superior
     let mut buf: Vec<u8> = Vec::new();
     let _ = File::open(file_path)
         .expect("Could not find file")
@@ -249,6 +231,7 @@ fn find_accs<'a>(buf: &'a [u8], header: &'a [u8]) -> HashSet<&'a [u8]> {
     accs
 }
 
+// Finds our account block depending on whether or not it is part 5 or not
 fn find_our_acc(chunks: &Vec<&[u8]>, headers: &Headers, is_part5: bool) -> Vec<u8> {
     let mut all_accs = Vec::new();
     for chunk in chunks.iter() {
@@ -282,15 +265,7 @@ fn find_our_acc(chunks: &Vec<&[u8]>, headers: &Headers, is_part5: bool) -> Vec<u
     our_acc.to_owned()
 }
 
-fn validate_chunks(chunks: &Vec<&[u8]>, accs: &HashSet<&[u8]>) -> bool {
-    for chunk in chunks {
-        if accs.contains(chunk) {
-            return false;
-        }
-    }
-    true
-}
-
+// Splits a chunk at a specified index.
 fn split_chunks(chunk: &[u8], req_type: ReqType) -> (&[u8], &[u8]) {
     let div = match req_type {
         ReqType::Balance => BALANCE_SIZE,
@@ -302,6 +277,7 @@ fn split_chunks(chunk: &[u8], req_type: ReqType) -> (&[u8], &[u8]) {
     (first_chunk, second_chunk)
 }
 
+// Composes a new state with split chunks at the specified index.
 fn compose_state<'a>(
     mut state: State<'a>,
     chunk: &'a [u8],
@@ -317,6 +293,18 @@ fn compose_state<'a>(
     state
 }
 
+// Validates that none of our request headers are also account numbers.
+fn validate_chunks(chunks: &Vec<&[u8]>, accs: &HashSet<&[u8]>) -> bool {
+    for chunk in chunks {
+        if accs.contains(chunk) {
+            return false;
+        }
+    }
+    true
+}
+
+// Performing an initial screen on whether a chunk can be properly split into the specified request
+// type.
 fn initial_screen(
     chunk: &[u8],
     accs: &HashSet<&[u8]>,
@@ -419,13 +407,12 @@ fn solve(state: State) -> Option<State> {
 }
 
 fn main() {
-    env::set_var("RUST_BACKTRACE", "1");
     // Getting our file
     let buf = create_buf();
     let state = State::new(&buf);
     let ret = solve(state);
     match ret {
-        Some(i) => i.print_pt5(),
+        Some(i) => i.print_pt2(),
         None => println!("No valid assignment found"),
     }
 }

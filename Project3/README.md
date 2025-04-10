@@ -168,6 +168,11 @@ That is, we will call it as (for an input file `task2.in`)
   1. Destination account.
   1. Time the request is to be executed.
   1. Amount of money in the request.
+- An invoice account looks like this:
+  1. Invoice request signature
+  1. Account requesting money.
+  1. Account sending money.
+  1. Time the request is to be executed.
 - The transfer request signature is:
   `be54 1528 f397 89ef 8749 6921 7b0a 7caa .T.(.....Ii!{.|.`
 - For a request to be executed immediately, its signature is:
