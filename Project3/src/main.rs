@@ -412,7 +412,7 @@ fn main() {
     let state = State::new(&buf);
     let ret = solve(state);
     match ret {
-        Some(i) => i.print_pt2(),
+        Some(i) => i.print_pt4(),
         None => println!("No valid assignment found"),
     }
 }
